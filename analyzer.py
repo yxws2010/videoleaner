@@ -29,12 +29,17 @@ def resize_keep_aspect(frame: np.ndarray, max_side: int) -> np.ndarray:
     )
 
 
-def _build_content(batch: list[dict], subject_hint: str) -> list[dict]:
+def _build_content(
+    batch: list[dict],
+    subject_hint: str,
+    image_max_side: int = 1024,
+    image_quality: int = 85,
+) -> list[dict]:
     content: list[dict] = []
     for item in batch:
-        frame_resized = resize_keep_aspect(item["frame"], max_side=1024)
+        frame_resized = resize_keep_aspect(item["frame"], max_side=image_max_side)
         ok, buf = cv2.imencode(
-            ".jpg", frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 85]
+            ".jpg", frame_resized, [cv2.IMWRITE_JPEG_QUALITY, image_quality]
         )
         if not ok:
             continue
@@ -75,6 +80,8 @@ def analyze_course(
     subject_hint: str = "",
     batch_size: int = 8,
     model: str = DEFAULT_MODEL,
+    image_max_side: int = 1024,
+    image_quality: int = 85,
 ) -> str:
     """分批调用 Claude，返回完整 Markdown 笔记字符串。"""
     client = anthropic.Anthropic()
@@ -87,7 +94,9 @@ def analyze_course(
     results: list[str] = []
 
     for i, batch in enumerate(batches):
-        content = _build_content(batch, subject_hint)
+        content = _build_content(
+            batch, subject_hint, image_max_side, image_quality
+        )
         try:
             response = client.messages.create(
                 model=model,

@@ -96,6 +96,29 @@ python main.py lecture01.mp4 --model claude-haiku-4-5 -y
 
 ---
 
+## 进一步省 token：压小图片
+
+图片是输入 token 的大头，可调小尺寸/质量大幅降费（按 `(宽×高)/750` 计费，
+长边减半 → 图片 token 约降到 1/4）：
+
+| 选项 | 默认 | 作用 |
+| --- | --- | --- |
+| `--image-max-side` | 1024 | 图片长边像素，越小越省（建议不低于 512，否则公式/小字可能看不清） |
+| `--image-quality` | 85 | JPEG 质量 1~100，越低越省（建议不低于 60） |
+
+```bash
+# 省钱档：小图 + Haiku（适合快速预览/纯文字课程）
+python main.py lecture01.mp4 --model claude-haiku-4-5 --image-max-side 640 --image-quality 70
+
+# 高清档：保留细节（适合公式密集/板书课程）
+python main.py lecture01.mp4 --image-max-side 1280
+```
+
+> ⚠️ 图片太小会让 Claude 看不清公式、代码、板书。省钱和可读性要权衡，
+> 第 4 步的确认框会显示当前图片设置和预估费用，可据此调整。
+
+---
+
 ## 费用估算
 
 每个关键帧会以 JPEG（长边 ≤1024px）形式发送给 Claude，约消耗 1000~1600 token；

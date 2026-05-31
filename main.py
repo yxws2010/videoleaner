@@ -32,10 +32,21 @@ def _done(start: float):
     print(f"  完成，耗时 {time.time() - start:.1f}s")
 
 
-_TOKENS_PER_IMAGE = 1600  # 长边 1024px JPEG 的大致上限
+def _tokens_per_image(image_max_side: int) -> int:
+    """估算单张图片的 token 数。
+
+    Anthropic 视觉大致按 (宽×高)/750 计费，这里用正方形长边作上限估算，
+    随尺寸平方缩放：长边减半 → token 约降到 1/4。
+    """
+    return max(1, int(image_max_side * image_max_side / 750))
 
 
-def estimate_cost(aligned: list[dict], batch_size: int, model: str) -> dict:
+def estimate_cost(
+    aligned: list[dict],
+    batch_size: int,
+    model: str,
+    image_max_side: int = 1024,
+) -> dict:
     """粗略预估第 4 步 Claude 分析的 token 与费用（按所选模型定价）。"""
     price = MODEL_PRICING.get(model, MODEL_PRICING[DEFAULT_MODEL])
     price_in, price_out = price["in"], price["out"]
@@ -43,7 +54,7 @@ def estimate_cost(aligned: list[dict], batch_size: int, model: str) -> dict:
     n_frames = len(aligned)
     n_batches = max(1, (n_frames + batch_size - 1) // batch_size)
 
-    image_tokens = n_frames * _TOKENS_PER_IMAGE
+    image_tokens = n_frames * _tokens_per_image(image_max_side)
     # 中文按 ~1 token/字 粗估转录文字
     text_tokens = sum(len(item.get("transcript", "")) for item in aligned)
     prompt_overhead = n_batches * 150
@@ -83,6 +94,10 @@ def estimate_cost(aligned: list[dict], batch_size: int, model: str) -> dict:
 @click.option("--model", default=DEFAULT_MODEL,
               type=click.Choice(list(MODEL_PRICING.keys())),
               help=f"Claude 模型，越贵质量越好 [默认: {DEFAULT_MODEL}]")
+@click.option("--image-max-side", default=1024, type=int,
+              help="发给 Claude 的图片长边像素，越小越省 token [默认: 1024]")
+@click.option("--image-quality", default=85, type=click.IntRange(1, 100),
+              help="JPEG 压缩质量 1~100，越低越省 token [默认: 85]")
 @click.option("--yes", "-y", is_flag=True, default=False,
               help="跳过 Claude 分析前的费用确认（用于自动化脚本）")
 def main(
@@ -95,6 +110,8 @@ def main(
     whisper_model,
     language,
     model,
+    image_max_side,
+    image_quality,
     yes,
 ):
     """视频网课分析工具：输入视频，输出结构化 Markdown 笔记。"""
@@ -132,11 +149,12 @@ def main(
     _done(t)
 
     # === 费用确认（第 4 步开始前，这是唯一花钱的一步）===
-    est = estimate_cost(aligned, batch_size, model)
+    est = estimate_cost(aligned, batch_size, model, image_max_side)
     print("\n" + "=" * 48)
     print("⚠️  下一步将调用 Claude API，会消耗你的 token（扣费）")
     print("=" * 48)
     print(f"  模型          : {model}")
+    print(f"  图片设置      : 长边 {image_max_side}px / 质量 {image_quality}")
     print(f"  关键帧数      : {est['n_frames']} 帧")
     print(f"  分批数        : {est['n_batches']} 批（每批 {batch_size} 帧）")
     print(f"  预计输入 token: ~{est['input_tokens']:,}")
@@ -158,6 +176,8 @@ def main(
         subject_hint=subject,
         batch_size=batch_size,
         model=model,
+        image_max_side=image_max_side,
+        image_quality=image_quality,
     )
     _done(t)
 
