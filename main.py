@@ -32,7 +32,9 @@ def _done(start: float):
     print(f"  完成，耗时 {time.time() - start:.1f}s")
 
 
-# claude-opus-4-5 粗略定价（美元 / 百万 token），仅用于费用预估，实际以官方为准
+# claude-opus-4-5 标准定价（美元 / 百万 token）
+# 已核对 Anthropic 官方价目（2026-05）：输入 $5 / 输出 $25。
+# 注意：不含缓存折扣/批处理折扣；换其它模型或官方调价后需同步修改。
 _PRICE_IN_PER_MTOK = 5.0
 _PRICE_OUT_PER_MTOK = 25.0
 _TOKENS_PER_IMAGE = 1600  # 长边 1024px JPEG 的大致上限
