@@ -69,15 +69,22 @@ python main.py lecture01.mp4 -i
 === 配置向导 ===（直接回车用默认值）
 1) 最多提取多少个关键帧？（0=不限） [0]: 5
 2) 只处理视频前多少秒？（0=整段） [0.0]: 60
-3) 选择大模型来源：
+3) 转录后端（国内离线选 openai）： [1]: 3   # 1auto/2faster/3openai
+4) 转录模型（越大越准越慢）： [2]: 2          # tiny/base/small/medium/large
+5) 选择大模型来源：
    [1] Claude (Anthropic)
    [2] ChatGPT (OpenAI)
    [3] MiniMax
    请选择 [1]: 3
-4) 选择 MiniMax 的模型：
+6) 选择 MiniMax 的模型：
    [1] MiniMax-M2.5
    请选择 [1]: 1
+7) 密钥：已从环境变量 MINIMAX_API_KEY 读到，无需重复输入
 ```
+
+> **第 7 步密钥**：若已设对应环境变量（`ANTHROPIC_API_KEY` /
+> `OPENAI_API_KEY` / `MINIMAX_API_KEY`），向导自动读取、跳过；否则当场提示
+> 输入（**输入时不显示、不写文件，仅本次运行有效**）。
 
 ### 命令行用法
 

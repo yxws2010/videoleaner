@@ -19,6 +19,12 @@ PROVIDER_LABELS = {
     "openai": "ChatGPT (OpenAI)",
     "minimax": "MiniMax",
 }
+# 各 provider 的密钥环境变量名
+PROVIDER_ENV = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "minimax": "MINIMAX_API_KEY",
+}
 from reporter import save_report
 
 
@@ -51,8 +57,20 @@ def _resolve_base_url(provider: str, base_url: str) -> str | None:
     return None  # openai 用官方默认；anthropic 不使用
 
 
-def run_wizard(provider, model, max_frames, limit_sec):
-    """交互式向导：逐步询问帧数 / 秒数 / 大模型来源与型号，返回更新后的值。"""
+def _pick(title: str, options: list[str], default_idx: int = 1) -> str:
+    """打印带编号的选项并返回所选项（编号从 1 起）。"""
+    print(title)
+    for idx, opt in enumerate(options, 1):
+        print(f"   [{idx}] {opt}")
+    choice = click.prompt(
+        "   请选择", default=default_idx, type=click.IntRange(1, len(options))
+    )
+    return options[choice - 1]
+
+
+def run_wizard(provider, model, max_frames, limit_sec,
+               whisper_backend, whisper_model):
+    """交互式向导：逐步询问各项配置（含按需输入密钥），返回更新后的值。"""
     print("\n=== 配置向导 ===（直接回车用默认值）")
 
     # 1. 关键帧上限
@@ -64,30 +82,47 @@ def run_wizard(provider, model, max_frames, limit_sec):
         "2) 只处理视频前多少秒？（0=整段）", default=limit_sec, type=float
     )
 
-    # 3. 选择大模型来源
-    providers = list(PROVIDER_LABELS.keys())
-    print("3) 选择大模型来源：")
-    for idx, p in enumerate(providers, 1):
-        print(f"   [{idx}] {PROVIDER_LABELS[p]}")
-    default_pidx = providers.index(provider) + 1
-    pidx = click.prompt(
-        "   请选择", default=default_pidx,
-        type=click.IntRange(1, len(providers)),
+    # 3. 转录后端
+    backends = ["auto", "faster", "openai"]
+    whisper_backend = _pick(
+        "3) 转录后端（国内离线选 openai）：", backends,
+        backends.index(whisper_backend) + 1,
     )
-    provider = providers[pidx - 1]
+    # 4. 转录模型
+    wmodels = ["tiny", "base", "small", "medium", "large"]
+    default_wm = wmodels.index(whisper_model) + 1 if whisper_model in wmodels else 2
+    whisper_model = _pick(
+        "4) 转录模型（越大越准越慢）：", wmodels, default_wm
+    )
 
-    # 4. 选择该来源下的具体模型
-    models = PROVIDER_MODELS[provider]
-    print(f"4) 选择 {PROVIDER_LABELS[provider]} 的模型：")
-    for idx, m in enumerate(models, 1):
-        print(f"   [{idx}] {m}")
-    midx = click.prompt(
-        "   请选择", default=1, type=click.IntRange(1, len(models)),
+    # 5. 大模型来源
+    providers = list(PROVIDER_LABELS.keys())
+    provider = _pick(
+        "5) 选择大模型来源：", [PROVIDER_LABELS[p] for p in providers],
+        providers.index(provider) + 1,
     )
-    model = models[midx - 1]
+    provider = providers[[PROVIDER_LABELS[p] for p in providers].index(provider)]
+
+    # 6. 具体模型
+    model = _pick(
+        f"6) 选择 {PROVIDER_LABELS[provider]} 的模型：",
+        PROVIDER_MODELS[provider], 1,
+    )
+
+    # 7. 密钥：环境变量已有就跳过，否则当场输入（隐藏、仅本次有效）
+    env_name = PROVIDER_ENV[provider]
+    if os.environ.get(env_name):
+        print(f"7) 密钥：已从环境变量 {env_name} 读到，无需重复输入")
+    else:
+        key = click.prompt(
+            f"7) 未检测到 {env_name}，请输入 {PROVIDER_LABELS[provider]} 密钥",
+            hide_input=True,
+        )
+        os.environ[env_name] = key.strip()
+        print("   已设置（仅本次运行有效，未保存到任何文件）")
 
     print("=" * 32)
-    return provider, model, max_frames, limit_sec
+    return provider, model, max_frames, limit_sec, whisper_backend, whisper_model
 
 
 def _tokens_per_image(image_max_side: int) -> int:
@@ -201,10 +236,12 @@ def main(
     if not os.path.exists(video_path):
         raise click.ClickException(f"视频文件不存在：{video_path}")
 
-    # 交互式向导（覆盖帧数/秒数/来源/模型）
+    # 交互式向导（覆盖帧数/秒数/转录后端与模型/来源/模型，并按需输入密钥）
     if interactive:
-        provider, model, max_frames, limit_sec = run_wizard(
-            provider, model, max_frames, limit_sec
+        (provider, model, max_frames, limit_sec,
+         whisper_backend, whisper_model) = run_wizard(
+            provider, model, max_frames, limit_sec,
+            whisper_backend, whisper_model,
         )
 
     # 解析模型默认值（按 provider）
