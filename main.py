@@ -5,7 +5,8 @@ import time
 
 import click
 
-from frame_extractor import extract_key_frames
+import cache
+from frame_extractor import extract_key_frames_cached
 from transcriber import transcribe_video
 from aligner import align_frames_with_transcript
 from analyzer import (
@@ -219,6 +220,10 @@ def estimate_cost(
               help="转录术语提示词，提升专有名词识别（如 'AI Skill,Agent,Prompt,Cursor'）")
 @click.option("--no-images", is_flag=True, default=False,
               help="不在笔记中嵌入关键帧图片")
+@click.option("--no-cache", is_flag=True, default=False,
+              help="不使用关键帧/转录缓存，强制重新计算")
+@click.option("--clear-cache", is_flag=True, default=False,
+              help="先清空本地缓存再运行")
 @click.option("--interactive", "-i", is_flag=True, default=False,
               help="交互式向导：逐步选择帧数/秒数/大模型来源与型号")
 def main(
@@ -244,6 +249,8 @@ def main(
     max_frames,
     whisper_prompt,
     no_images,
+    no_cache,
+    clear_cache,
     interactive,
 ):
     """视频网课分析工具：输入视频，输出结构化 Markdown 笔记。"""
@@ -251,6 +258,11 @@ def main(
 
     if not os.path.exists(video_path):
         raise click.ClickException(f"视频文件不存在：{video_path}")
+
+    if clear_cache:
+        n = cache.clear()
+        print(f"已清空缓存（删除 {n} 个文件）")
+    use_cache = not no_cache
 
     # 交互式向导（覆盖帧数/时间区间/转录后端与模型/来源/模型，并按需输入密钥）
     if interactive:
@@ -279,13 +291,14 @@ def main(
 
     # 步骤 1/4：提取关键帧
     t = _step("[步骤 1/4] 提取关键帧")
-    frames = extract_key_frames(
+    frames = extract_key_frames_cached(
         video_path,
         diff_threshold=threshold,
         max_interval_sec=float(interval),
         max_frames=max_frames,
         start_sec=start_sec,
         limit_sec=end_abs,
+        use_cache=use_cache,
     )
     _done(t)
 
@@ -299,6 +312,7 @@ def main(
         limit_sec=end_abs,
         backend=whisper_backend,
         prompt=whisper_prompt or subject,
+        use_cache=use_cache,
     )
     _done(t)
 

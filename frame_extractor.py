@@ -8,6 +8,8 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
+import cache
+
 
 def _to_gray_small(frame: np.ndarray, resize_width: int) -> np.ndarray:
     """缩小到指定宽度（保持比例）并转灰度，用于差异计算。"""
@@ -117,6 +119,67 @@ def extract_key_frames(
 
     ratio = (len(frames) / total) if total > 0 else 0.0
     print(f"提取关键帧 {len(frames)} 帧，共处理 {total} 帧，压缩比 {ratio:.1%}")
+    return frames
+
+
+def extract_key_frames_cached(
+    video_path: str,
+    diff_threshold: float = 0.12,
+    max_interval_sec: float = 30.0,
+    min_interval_sec: float = 2.0,
+    resize_width: int = 320,
+    max_frames: int = 0,
+    limit_sec: float = 0.0,
+    start_sec: float = 0.0,
+    use_cache: bool = True,
+) -> list[tuple[float, np.ndarray]]:
+    """带缓存的关键帧提取。
+
+    参数与 extract_key_frames 相同；use_cache=True 时，相同视频+相同参数
+    第二次调用直接从 .cache/ 读取（关键帧以 JPEG 编码存盘，体积小），
+    跳过逐帧解码，大幅加快重复测试。
+    """
+    params = {
+        "diff_threshold": diff_threshold,
+        "max_interval_sec": max_interval_sec,
+        "min_interval_sec": min_interval_sec,
+        "resize_width": resize_width,
+        "max_frames": max_frames,
+        "limit_sec": limit_sec,
+        "start_sec": start_sec,
+    }
+    key = cache.make_key("frames", video_path, params)
+
+    if use_cache:
+        cached = cache.load(key)
+        if cached is not None:
+            frames = [
+                (ts, cv2.imdecode(np.frombuffer(buf, np.uint8), cv2.IMREAD_COLOR))
+                for ts, buf in cached
+            ]
+            print(f"✓ 命中关键帧缓存，跳过提取（{len(frames)} 帧）")
+            return frames
+
+    frames = extract_key_frames(
+        video_path,
+        diff_threshold=diff_threshold,
+        max_interval_sec=max_interval_sec,
+        min_interval_sec=min_interval_sec,
+        resize_width=resize_width,
+        max_frames=max_frames,
+        limit_sec=limit_sec,
+        start_sec=start_sec,
+    )
+
+    if use_cache:
+        encoded = []
+        for ts, frame in frames:
+            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            if ok:
+                encoded.append((ts, buf.tobytes()))
+        cache.save(key, encoded)
+        print(f"  关键帧已缓存（下次相同参数将秒级复用）")
+
     return frames
 
 

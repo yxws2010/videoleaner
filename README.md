@@ -243,6 +243,30 @@ python main.py 大视频.mp4 --provider minimax --start-sec 180 --end-sec 600
 python main.py 大视频.mp4 --provider minimax --start-sec 180 --end-sec 600 --dry-run
 ```
 
+### 重复测试很慢？自动缓存关键帧与转录
+
+第一次跑完后，**关键帧提取**和**音频转录**这两个最慢的本地步骤会自动缓存到
+`.cache/`。只要视频文件和处理参数没变，再次运行直接秒级复用，跳过逐帧解码和
+Whisper 转录——非常适合反复调试提示词、换大模型、调批大小等场景。
+
+```bash
+# 第一次：正常提取 + 转录，并写入缓存
+python main.py 视频.mp4 --provider minimax --start-sec 280
+
+# 第二次（只改了 --whisper-prompt 之类不影响前两步的参数）：
+# 关键帧、转录全部命中缓存，几乎瞬间进入大模型分析
+python main.py 视频.mp4 --provider minimax --start-sec 280 --batch-size 4
+```
+
+> 缓存键 = 视频指纹（路径+大小+修改时间）+ 处理参数。改了 `--threshold`、
+> `--start-sec`、`--whisper-model` 等会影响结果的参数，缓存会自动失效重算，
+> 不会用到过期数据。
+
+| 选项 | 作用 |
+| --- | --- |
+| `--no-cache` | 本次不读写缓存，强制重新计算 |
+| `--clear-cache` | 先清空所有缓存再运行 |
+
 ### 提升识别准确率（专有名词老识别错？）
 
 语音识别对专业术语容易出错（如把 `Skill` 听成「四个有」）。两招改善：

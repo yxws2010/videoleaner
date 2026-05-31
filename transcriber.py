@@ -16,6 +16,8 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 import ffmpeg
 
+import cache
+
 
 def _transcribe_faster(audio_path: str, model_size: str, lang, prompt) -> list[dict]:
     """faster-whisper 后端（CTranslate2 模型，可能需联网下载）。"""
@@ -87,6 +89,7 @@ def transcribe_video(
     backend: str = "auto",
     start_sec: float = 0.0,
     prompt: str = "",
+    use_cache: bool = True,
 ) -> list[dict]:
     """提取音频并转录。
 
@@ -94,9 +97,21 @@ def transcribe_video(
     start_sec / limit_sec：只转录 [start_sec, limit_sec] 这段。
     prompt：术语提示词，提升专有名词识别准确率。
     backend：auto / faster / openai。
+    use_cache：相同视频+参数复用上次转录结果（转录最慢，缓存收益最大）。
     """
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"视频文件不存在：{video_path}")
+
+    # 0. 查缓存
+    ckey = cache.make_key("transcript", video_path, {
+        "model_size": model_size, "language": language, "limit_sec": limit_sec,
+        "backend": backend, "start_sec": start_sec, "prompt": prompt,
+    })
+    if use_cache:
+        cached = cache.load(ckey)
+        if cached is not None:
+            print(f"✓ 命中转录缓存，跳过转录（{len(cached)} 个片段）")
+            return cached
 
     # 1. 提取音频到临时 wav（16kHz 单声道）
     tmp = tempfile.mktemp(suffix=".wav")
@@ -129,6 +144,8 @@ def transcribe_video(
             os.remove(tmp)
 
     print(f"转录完成，共 {len(segments)} 个片段")
+    if use_cache:
+        cache.save(ckey, segments)
     return segments
 
 

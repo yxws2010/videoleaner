@@ -11,6 +11,9 @@
 *_notes_*.md
 *_images_*/
 
+# 本地处理缓存（关键帧/转录结果）
+.cache/
+
 # Python 缓存
 __pycache__/
 *.py[cod]
