@@ -168,6 +168,23 @@ python main.py 测试视频.mp4 --provider minimax --dry-run
 
 确认无误后，去掉 `--dry-run` 即可真正分析。
 
+### 视频太大？只测前一小段
+
+大文件不必整段跑。用下面两个开关快速测试（可与 `--dry-run` 叠加）：
+
+| 选项 | 作用 |
+| --- | --- |
+| `--limit-sec N` | 只处理**前 N 秒**（关键帧 + 转录都只跑前 N 秒，不读完大文件） |
+| `--max-frames N` | 最多提取 **N 个关键帧**就停 |
+
+```bash
+# 只跑前 60 秒、最多 5 帧，且不调用模型 —— 秒级验证整条流程
+python main.py 大视频.mp4 --provider minimax --limit-sec 60 --max-frames 5 --dry-run
+
+# 确认 OK 后，去掉 --dry-run 真正分析前 60 秒（只扣 1 次左右调用）
+python main.py 大视频.mp4 --provider minimax --limit-sec 60 --max-frames 5
+```
+
 ---
 
 ## 进一步省 token：压小图片

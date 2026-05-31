@@ -27,11 +27,16 @@ def extract_key_frames(
     max_interval_sec: float = 30.0,
     min_interval_sec: float = 2.0,
     resize_width: int = 320,
+    max_frames: int = 0,
+    limit_sec: float = 0.0,
 ) -> list[tuple[float, np.ndarray]]:
     """提取关键帧。
 
     返回 [(timestamp_sec, frame_bgr), ...] 列表。帧保留原始分辨率，
     resize 只用于差异计算。
+
+    max_frames > 0：收集到这么多关键帧后立即停止（快速测试用）。
+    limit_sec > 0：只处理视频前这么多秒（不读完大文件）。
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -56,6 +61,11 @@ def extract_key_frames(
             break
 
         timestamp = frame_idx / fps
+
+        # 只处理前 limit_sec 秒
+        if limit_sec > 0 and timestamp > limit_sec:
+            break
+
         pbar.update(1)
 
         small = _to_gray_small(frame, resize_width)
@@ -82,6 +92,9 @@ def extract_key_frames(
         if save:
             frames.append((timestamp, frame))
             last_saved_ts = timestamp
+            # 达到帧数上限即停止（快速测试）
+            if max_frames > 0 and len(frames) >= max_frames:
+                break
 
         prev_small = small
         frame_idx += 1

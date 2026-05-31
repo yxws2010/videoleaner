@@ -109,6 +109,10 @@ def estimate_cost(
               help="跳过 Claude 分析前的费用确认（用于自动化脚本）")
 @click.option("--dry-run", is_flag=True, default=False,
               help="只跑前 3 步并显示预估，不调用大模型、不扣额度（验证流程用）")
+@click.option("--limit-sec", default=0.0, type=float,
+              help="只处理视频前 N 秒，大文件快速测试用 [默认: 0=整段]")
+@click.option("--max-frames", default=0, type=int,
+              help="最多提取 N 个关键帧后停止，快速测试用 [默认: 0=不限]")
 def main(
     video_path,
     output_dir,
@@ -125,6 +129,8 @@ def main(
     image_quality,
     yes,
     dry_run,
+    limit_sec,
+    max_frames,
 ):
     """视频网课分析工具：输入视频，输出结构化 Markdown 笔记。"""
     print("=== 视频网课分析工具 ===")
@@ -143,6 +149,8 @@ def main(
         video_path,
         diff_threshold=threshold,
         max_interval_sec=float(interval),
+        max_frames=max_frames,
+        limit_sec=limit_sec,
     )
     _done(t)
 
@@ -152,6 +160,7 @@ def main(
         video_path,
         model_size=whisper_model,
         language=language,
+        limit_sec=limit_sec,
     )
     _done(t)
 

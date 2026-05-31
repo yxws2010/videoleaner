@@ -11,10 +11,12 @@ def transcribe_video(
     video_path: str,
     model_size: str = "base",
     language: str = "zh",
+    limit_sec: float = 0.0,
 ) -> list[dict]:
     """提取音频并转录。
 
     返回 [{"start": float, "end": float, "text": str}, ...]
+    limit_sec > 0：只转录前这么多秒（配合大文件快速测试）。
     """
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"视频文件不存在：{video_path}")
@@ -22,10 +24,13 @@ def transcribe_video(
     # 1. 提取音频到临时 wav（16kHz 单声道）
     tmp = tempfile.mktemp(suffix=".wav")
     try:
+        out_kwargs = dict(ar=16000, ac=1, loglevel="quiet")
+        if limit_sec > 0:
+            out_kwargs["t"] = limit_sec  # 只截取前 limit_sec 秒音频
         (
             ffmpeg
             .input(video_path)
-            .output(tmp, ar=16000, ac=1, loglevel="quiet")
+            .output(tmp, **out_kwargs)
             .overwrite_output()
             .run()
         )
