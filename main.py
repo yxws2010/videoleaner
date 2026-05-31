@@ -68,7 +68,7 @@ def _pick(title: str, options: list[str], default_idx: int = 1) -> str:
     return options[choice - 1]
 
 
-def run_wizard(provider, model, max_frames, limit_sec,
+def run_wizard(provider, model, max_frames, start_sec, end_sec,
                whisper_backend, whisper_model):
     """交互式向导：逐步询问各项配置（含按需输入密钥），返回更新后的值。"""
     print("\n=== 配置向导 ===（直接回车用默认值）")
@@ -77,9 +77,12 @@ def run_wizard(provider, model, max_frames, limit_sec,
     max_frames = click.prompt(
         "1) 最多提取多少个关键帧？（0=不限）", default=max_frames, type=int
     )
-    # 2. 处理时长
-    limit_sec = click.prompt(
-        "2) 只处理视频前多少秒？（0=整段）", default=limit_sec, type=float
+    # 2. 处理时间区间（从第几秒到第几秒）
+    start_sec = click.prompt(
+        "2a) 从第几秒开始？（0=从头）", default=start_sec, type=float
+    )
+    end_sec = click.prompt(
+        "2b) 到第几秒结束？（0=到结尾）", default=end_sec, type=float
     )
 
     # 3. 转录后端
@@ -122,7 +125,8 @@ def run_wizard(provider, model, max_frames, limit_sec,
         print("   已设置（仅本次运行有效，未保存到任何文件）")
 
     print("=" * 32)
-    return provider, model, max_frames, limit_sec, whisper_backend, whisper_model
+    return (provider, model, max_frames, start_sec, end_sec,
+            whisper_backend, whisper_model)
 
 
 def _tokens_per_image(image_max_side: int) -> int:
@@ -203,10 +207,18 @@ def estimate_cost(
               help="跳过 Claude 分析前的费用确认（用于自动化脚本）")
 @click.option("--dry-run", is_flag=True, default=False,
               help="只跑前 3 步并显示预估，不调用大模型、不扣额度（验证流程用）")
+@click.option("--start-sec", default=0.0, type=float,
+              help="从第 N 秒开始处理（跳过之前内容）[默认: 0]")
+@click.option("--end-sec", default=0.0, type=float,
+              help="处理到第 N 秒为止 [默认: 0=到结尾]")
 @click.option("--limit-sec", default=0.0, type=float,
-              help="只处理视频前 N 秒，大文件快速测试用 [默认: 0=整段]")
+              help="（兼容旧用法）处理时长 N 秒；等价于 --end-sec=start+N")
 @click.option("--max-frames", default=0, type=int,
               help="最多提取 N 个关键帧后停止，快速测试用 [默认: 0=不限]")
+@click.option("--whisper-prompt", default="",
+              help="转录术语提示词，提升专有名词识别（如 'AI Skill,Agent,Prompt,Cursor'）")
+@click.option("--no-images", is_flag=True, default=False,
+              help="不在笔记中嵌入关键帧图片")
 @click.option("--interactive", "-i", is_flag=True, default=False,
               help="交互式向导：逐步选择帧数/秒数/大模型来源与型号")
 def main(
@@ -226,8 +238,12 @@ def main(
     image_quality,
     yes,
     dry_run,
+    start_sec,
+    end_sec,
     limit_sec,
     max_frames,
+    whisper_prompt,
+    no_images,
     interactive,
 ):
     """视频网课分析工具：输入视频，输出结构化 Markdown 笔记。"""
@@ -236,11 +252,11 @@ def main(
     if not os.path.exists(video_path):
         raise click.ClickException(f"视频文件不存在：{video_path}")
 
-    # 交互式向导（覆盖帧数/秒数/转录后端与模型/来源/模型，并按需输入密钥）
+    # 交互式向导（覆盖帧数/时间区间/转录后端与模型/来源/模型，并按需输入密钥）
     if interactive:
-        (provider, model, max_frames, limit_sec,
+        (provider, model, max_frames, start_sec, end_sec,
          whisper_backend, whisper_model) = run_wizard(
-            provider, model, max_frames, limit_sec,
+            provider, model, max_frames, start_sec, end_sec,
             whisper_backend, whisper_model,
         )
 
@@ -248,10 +264,18 @@ def main(
     if not model:
         model = DEFAULT_MODELS[provider]
 
+    # 处理区间：end_sec 优先；否则用旧的 limit_sec（时长）换算为绝对结束秒
+    end_abs = end_sec if end_sec > 0 else (
+        start_sec + limit_sec if limit_sec > 0 else 0.0
+    )
+
     duration = get_video_duration(video_path)
     print(f"视频文件：{video_path}")
     m, s = divmod(int(duration), 60)
     print(f"视频时长：{m:02d}:{s:02d}")
+    if start_sec > 0 or end_abs > 0:
+        print(f"处理区间：{start_sec:.0f}s ~ "
+              f"{(end_abs if end_abs > 0 else duration):.0f}s")
 
     # 步骤 1/4：提取关键帧
     t = _step("[步骤 1/4] 提取关键帧")
@@ -260,7 +284,8 @@ def main(
         diff_threshold=threshold,
         max_interval_sec=float(interval),
         max_frames=max_frames,
-        limit_sec=limit_sec,
+        start_sec=start_sec,
+        limit_sec=end_abs,
     )
     _done(t)
 
@@ -270,8 +295,10 @@ def main(
         video_path,
         model_size=whisper_model,
         language=language,
-        limit_sec=limit_sec,
+        start_sec=start_sec,
+        limit_sec=end_abs,
         backend=whisper_backend,
+        prompt=whisper_prompt or subject,
     )
     _done(t)
 
@@ -311,6 +338,14 @@ def main(
             print("已取消。前 3 步均为本地处理，未产生任何费用。")
             return
 
+    # 准备关键帧图片目录（与笔记同名时间戳，便于对应）
+    run_ts = time.strftime("%Y%m%d_%H%M%S")
+    images_dir = images_rel = None
+    if not no_images:
+        stem = os.path.splitext(os.path.basename(video_path))[0]
+        images_rel = f"{stem}_images_{run_ts}"
+        images_dir = os.path.join(output_dir, images_rel)
+
     # 步骤 4/4：大模型分析
     t = _step("[步骤 4/4] 大模型分析")
     raw_notes = analyze_course(
@@ -322,6 +357,8 @@ def main(
         image_quality=image_quality,
         provider=provider,
         base_url=_resolve_base_url(provider, base_url),
+        images_dir=images_dir,
+        images_rel=images_rel or "",
     )
     _done(t)
 
@@ -332,8 +369,11 @@ def main(
         output_dir=output_dir,
         duration=duration,
         frame_count=len(frames),
+        timestamp=run_ts,
     )
     print(f"\n✅ 完成！笔记已保存：{path}")
+    if images_dir:
+        print(f"   关键帧图片：{images_dir}/（共 {len(frames)} 张，已嵌入笔记）")
 
 
 if __name__ == "__main__":

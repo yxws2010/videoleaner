@@ -226,22 +226,43 @@ python main.py 测试视频.mp4 --provider minimax --dry-run
 
 确认无误后，去掉 `--dry-run` 即可真正分析。
 
-### 视频太大？只测前一小段
-
-大文件不必整段跑。用下面两个开关快速测试（可与 `--dry-run` 叠加）：
+### 只处理某个时间区间（自己先看，再针对关键片段做笔记）
 
 | 选项 | 作用 |
 | --- | --- |
-| `--limit-sec N` | 只处理**前 N 秒**（关键帧 + 转录都只跑前 N 秒，不读完大文件） |
-| `--max-frames N` | 最多提取 **N 个关键帧**就停 |
+| `--start-sec N` | 从第 N 秒开始处理 |
+| `--end-sec N` | 处理到第 N 秒为止（0=到结尾） |
+| `--max-frames N` | 最多提取 N 个关键帧就停 |
+| `--limit-sec N` | （兼容旧用法）处理时长 N 秒 = `--end-sec start+N` |
 
 ```bash
-# 只跑前 60 秒、最多 5 帧，且不调用模型 —— 秒级验证整条流程
-python main.py 大视频.mp4 --provider minimax --limit-sec 60 --max-frames 5 --dry-run
+# 只分析 3:00~10:00 这段（你看过后觉得最关键的部分）
+python main.py 大视频.mp4 --provider minimax --start-sec 180 --end-sec 600
 
-# 确认 OK 后，去掉 --dry-run 真正分析前 60 秒（只扣 1 次左右调用）
-python main.py 大视频.mp4 --provider minimax --limit-sec 60 --max-frames 5
+# 先 dry-run 零成本确认区间和帧数
+python main.py 大视频.mp4 --provider minimax --start-sec 180 --end-sec 600 --dry-run
 ```
+
+### 提升识别准确率（专有名词老识别错？）
+
+语音识别对专业术语容易出错（如把 `Skill` 听成「四个有」）。两招改善：
+
+1. **`--whisper-prompt`**：把术语喂给 Whisper 作提示词
+2. **更大的模型**：`--whisper-model medium`（你本地已有，更准但更慢）
+
+```bash
+python main.py 视频.mp4 --provider minimax \
+  --whisper-model medium \
+  --whisper-prompt "AI Skill, Agent, Prompt, Cursor, Colab, Reference, 技能"
+```
+
+> 另外笔记里的专业术语，分析模型也会**结合画面自动纠正**语音识别的错误。
+
+### 笔记自带关键帧截图
+
+默认会把关键帧**存成图片并嵌入笔记**，配在对应时间戳段落上方，方便对照学习。
+图片存在 `<视频名>_images_<时间戳>/` 目录（与 .md 同级）。不想要图就加
+`--no-images`。
 
 ---
 

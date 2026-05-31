@@ -7,10 +7,41 @@
 
 import base64
 import os
+import re
 
 import anthropic
 import cv2
 import numpy as np
+
+# 去除模型思考过程标签（<think>...</think> / <thinking>...</thinking>）
+_THINK_RE = re.compile(r"<think(?:ing)?>.*?</think(?:ing)?>", re.DOTALL | re.IGNORECASE)
+
+
+def strip_think(text: str) -> str:
+    """剥掉模型输出里的思考过程标签，返回干净正文。"""
+    text = _THINK_RE.sub("", text)
+    # 清理可能残留的未闭合开标签
+    text = re.sub(r"<think(?:ing)?>", "", text, flags=re.IGNORECASE)
+    return text.strip()
+
+
+def save_batch_images(
+    batch: list[dict], images_dir: str, images_rel: str, start_index: int
+) -> tuple[str, int]:
+    """把一批关键帧存成图片，返回 (markdown 图片块, 下一个序号)。"""
+    os.makedirs(images_dir, exist_ok=True)
+    lines: list[str] = []
+    idx = start_index
+    for item in batch:
+        minutes, seconds = divmod(int(item["timestamp"]), 60)
+        mmss = f"{minutes:02d}{seconds:02d}"
+        fname = f"frame_{idx:03d}_{mmss}.jpg"
+        thumb = resize_keep_aspect(item["frame"], max_side=800)
+        cv2.imwrite(os.path.join(images_dir, fname), thumb)
+        rel = f"{images_rel}/{fname}" if images_rel else fname
+        lines.append(f"**[{minutes:02d}:{seconds:02d}]**\n\n![{minutes:02d}:{seconds:02d}]({rel})")
+        idx += 1
+    return ("\n\n".join(lines), idx)
 
 DEFAULT_MODEL = "claude-opus-4-5"
 MAX_TOKENS = 4096
@@ -79,7 +110,10 @@ def _prompt_text(subject_hint: str) -> str:
         "2. 如果画面中有公式、代码、图表，请完整提取\n"
         "3. 标注重要概念的时间戳，格式：`[MM:SS]`\n"
         "4. 如有小结或总结，单独列出\n"
-        "输出格式：Markdown，不要加多余的前言"
+        "重要：音频文字是语音识别结果，专业术语可能有错（例如把 'Skill' 识别成"
+        "'四个有/技能败'、把 'Prompt' 识别成 '提是此'）。请优先结合画面内容"
+        "纠正这些术语，以画面为准。\n"
+        "输出格式：直接输出 Markdown 正文，不要写思考过程，不要加多余前言。"
     )
 
 
@@ -135,14 +169,20 @@ def analyze_course(
     provider: str = "anthropic",
     base_url: str | None = None,
     api_key: str | None = None,
+    images_dir: str | None = None,
+    images_rel: str = "",
 ) -> str:
-    """分批调用大模型，返回完整 Markdown 笔记字符串。"""
+    """分批调用大模型，返回完整 Markdown 笔记字符串。
+
+    images_dir 非空时，把每批关键帧存图并嵌入对应小节上方。
+    """
     batches = [
         aligned_data[i:i + batch_size]
         for i in range(0, len(aligned_data), batch_size)
     ]
     total_batches = len(batches)
     results: list[str] = []
+    img_index = 0  # 关键帧图片全局序号
 
     if provider == "anthropic":
         client = anthropic.Anthropic()
@@ -194,9 +234,21 @@ def analyze_course(
                     messages=[{"role": "user", "content": content}],
                 )
                 text = response.choices[0].message.content or ""
-            results.append(text.strip())
+            text = strip_think(text)  # 剥掉模型思考过程
         except Exception as e:  # 单批失败不中断整体流程
             print(f"⚠️  第 {i + 1}/{total_batches} 批分析失败，已跳过：{e}")
+            text = ""
+
+        # 关键帧配图（放在该批笔记上方）
+        if images_dir:
+            img_md, img_index = save_batch_images(
+                batch, images_dir, images_rel, img_index
+            )
+            section = f"{img_md}\n\n{text}" if text else img_md
+        else:
+            section = text
+        if section.strip():
+            results.append(section.strip())
 
         print(f"已分析 {i + 1}/{total_batches} 批")
 

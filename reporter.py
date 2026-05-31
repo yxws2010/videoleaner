@@ -19,14 +19,18 @@ def save_report(
     output_dir: str = ".",
     duration: float = 0.0,
     frame_count: int = 0,
+    timestamp: str | None = None,
 ) -> str:
-    """保存 Markdown 文件，返回文件路径。"""
+    """保存 Markdown 文件，返回文件路径。
+
+    timestamp 用于文件名（与关键帧图片目录共用同一时间戳，便于对应）。
+    """
     os.makedirs(output_dir, exist_ok=True)
 
     video_name = os.path.basename(video_path)
     stem = os.path.splitext(video_name)[0]
     now = datetime.now()
-    ts = now.strftime("%Y%m%d_%H%M%S")
+    ts = timestamp or now.strftime("%Y%m%d_%H%M%S")
     filename = f"{stem}_notes_{ts}.md"
     path = os.path.join(output_dir, filename)
 

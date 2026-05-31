@@ -29,6 +29,7 @@ def extract_key_frames(
     resize_width: int = 320,
     max_frames: int = 0,
     limit_sec: float = 0.0,
+    start_sec: float = 0.0,
 ) -> list[tuple[float, np.ndarray]]:
     """提取关键帧。
 
@@ -36,7 +37,8 @@ def extract_key_frames(
     resize 只用于差异计算。
 
     max_frames > 0：收集到这么多关键帧后立即停止（快速测试用）。
-    limit_sec > 0：只处理视频前这么多秒（不读完大文件）。
+    start_sec > 0：从这一秒开始处理（跳过之前的内容）。
+    limit_sec > 0：处理到这一秒为止（视频内的绝对时间，非时长）。
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -47,6 +49,10 @@ def extract_key_frames(
     if fps <= 0:
         cap.release()
         raise ValueError(f"无法读取视频帧率：{video_path}")
+
+    # 从 start_sec 跳着开始读（大文件直接 seek，省时）
+    if start_sec > 0:
+        cap.set(cv2.CAP_PROP_POS_MSEC, start_sec * 1000.0)
 
     frames: list[tuple[float, np.ndarray]] = []
     prev_small: np.ndarray | None = None
@@ -60,9 +66,11 @@ def extract_key_frames(
         if not ret:
             break
 
-        timestamp = frame_idx / fps
+        # 用容器实际播放位置作时间戳（seek 之后才准确）
+        pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
+        timestamp = pos_msec / 1000.0 if pos_msec > 0 else frame_idx / fps
 
-        # 只处理前 limit_sec 秒
+        # 处理到 limit_sec（视频内绝对时间）为止
         if limit_sec > 0 and timestamp > limit_sec:
             break
 

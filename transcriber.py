@@ -17,13 +17,14 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 import ffmpeg
 
 
-def _transcribe_faster(audio_path: str, model_size: str, lang) -> list[dict]:
+def _transcribe_faster(audio_path: str, model_size: str, lang, prompt) -> list[dict]:
     """faster-whisper 后端（CTranslate2 模型，可能需联网下载）。"""
     from faster_whisper import WhisperModel
 
     model = WhisperModel(model_size)
     seg_iter, _info = model.transcribe(
-        audio_path, language=lang, word_timestamps=False
+        audio_path, language=lang, word_timestamps=False,
+        initial_prompt=prompt or None,
     )
     return [
         {"start": float(s.start), "end": float(s.end), "text": s.text.strip()}
@@ -31,12 +32,15 @@ def _transcribe_faster(audio_path: str, model_size: str, lang) -> list[dict]:
     ]
 
 
-def _transcribe_openai(audio_path: str, model_size: str, lang) -> list[dict]:
+def _transcribe_openai(audio_path: str, model_size: str, lang, prompt) -> list[dict]:
     """openai-whisper 后端（原版 .pt 模型，从 ~/.cache/whisper 离线加载）。"""
     import whisper
 
     model = whisper.load_model(model_size)
-    result = model.transcribe(audio_path, language=lang, verbose=False)
+    result = model.transcribe(
+        audio_path, language=lang, verbose=False,
+        initial_prompt=prompt or None,
+    )
     return [
         {
             "start": float(s["start"]),
@@ -48,20 +52,20 @@ def _transcribe_openai(audio_path: str, model_size: str, lang) -> list[dict]:
 
 
 def _run_backend(
-    audio_path: str, model_size: str, lang, backend: str
+    audio_path: str, model_size: str, lang, backend: str, prompt: str
 ) -> list[dict]:
     if backend == "faster":
-        return _transcribe_faster(audio_path, model_size, lang)
+        return _transcribe_faster(audio_path, model_size, lang, prompt)
     if backend == "openai":
-        return _transcribe_openai(audio_path, model_size, lang)
+        return _transcribe_openai(audio_path, model_size, lang, prompt)
 
     # auto：先 faster，失败回退 openai
     try:
-        return _transcribe_faster(audio_path, model_size, lang)
+        return _transcribe_faster(audio_path, model_size, lang, prompt)
     except Exception as e_fast:
         print("  faster-whisper 不可用，改用 openai-whisper 本地模型……")
         try:
-            return _transcribe_openai(audio_path, model_size, lang)
+            return _transcribe_openai(audio_path, model_size, lang, prompt)
         except Exception as e_openai:
             raise RuntimeError(
                 "两种 Whisper 后端均失败：\n"
@@ -81,11 +85,14 @@ def transcribe_video(
     language: str = "zh",
     limit_sec: float = 0.0,
     backend: str = "auto",
+    start_sec: float = 0.0,
+    prompt: str = "",
 ) -> list[dict]:
     """提取音频并转录。
 
-    返回 [{"start": float, "end": float, "text": str}, ...]
-    limit_sec > 0：只转录前这么多秒（配合大文件快速测试）。
+    返回 [{"start": float, "end": float, "text": str}, ...]（时间戳为视频内绝对秒）。
+    start_sec / limit_sec：只转录 [start_sec, limit_sec] 这段。
+    prompt：术语提示词，提升专有名词识别准确率。
     backend：auto / faster / openai。
     """
     if not os.path.exists(video_path):
@@ -94,12 +101,15 @@ def transcribe_video(
     # 1. 提取音频到临时 wav（16kHz 单声道）
     tmp = tempfile.mktemp(suffix=".wav")
     try:
+        in_kwargs = {}
+        if start_sec > 0:
+            in_kwargs["ss"] = start_sec  # 从 start_sec 开始截取
         out_kwargs = dict(ar=16000, ac=1, loglevel="quiet")
         if limit_sec > 0:
-            out_kwargs["t"] = limit_sec  # 只截取前 limit_sec 秒音频
+            out_kwargs["t"] = max(0.0, limit_sec - start_sec)  # 截到 limit_sec
         (
             ffmpeg
-            .input(video_path)
+            .input(video_path, **in_kwargs)
             .output(tmp, **out_kwargs)
             .overwrite_output()
             .run()
@@ -107,7 +117,12 @@ def transcribe_video(
 
         # 2. 转录（language=None 表示自动检测）
         lang = None if (language in (None, "", "None", "none")) else language
-        segments = _run_backend(tmp, model_size, lang, backend)
+        segments = _run_backend(tmp, model_size, lang, backend, prompt)
+        # 截取的音频时间从 0 起，补回 start_sec 还原为视频内绝对时间
+        if start_sec > 0:
+            for s in segments:
+                s["start"] += start_sec
+                s["end"] += start_sec
     finally:
         # 3. 清理临时文件
         if os.path.exists(tmp):

@@ -1,8 +1,15 @@
 # 临时音频（ffmpeg 提取的中间产物）
 *.wav
 
-# 生成的课程笔记
+# 视频文件（体积大，不入库）
+*.mp4
+*.mkv
+*.avi
+*.mov
+
+# 生成的课程笔记与关键帧图片
 *_notes_*.md
+*_images_*/
 
 # Python 缓存
 __pycache__/
