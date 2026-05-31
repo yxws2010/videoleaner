@@ -3,6 +3,11 @@
 import os
 import tempfile
 
+# 国内直连 huggingface.co 常被墙，默认走镜像 hf-mirror.com。
+# 必须在导入 faster_whisper / huggingface_hub 之前设置才生效。
+# 已自行设置 HF_ENDPOINT（如挂了代理）则尊重你的设置。
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 import ffmpeg
 from faster_whisper import WhisperModel
 
@@ -38,7 +43,18 @@ def transcribe_video(
         # 2. 转录
         # language=None 表示自动检测
         lang = None if (language in (None, "", "None", "none")) else language
-        model = WhisperModel(model_size)
+        try:
+            model = WhisperModel(model_size)
+        except Exception as e:
+            raise RuntimeError(
+                "下载 Whisper 模型失败（通常是网络无法访问模型仓库）。\n"
+                f"  当前镜像：HF_ENDPOINT={os.environ.get('HF_ENDPOINT')}\n"
+                "  可尝试：\n"
+                "  1) 确认能访问 https://hf-mirror.com（国内镜像）\n"
+                "  2) 或挂代理后设置 HF_ENDPOINT=https://huggingface.co\n"
+                "  3) 或换更小的模型重试：--whisper-model tiny\n"
+                f"  原始错误：{e}"
+            ) from e
         seg_iter, _info = model.transcribe(
             tmp,
             language=lang,

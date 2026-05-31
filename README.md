@@ -220,6 +220,28 @@ python main.py lecture01.mp4 --image-max-side 1280
 
 ---
 
+## 常见问题
+
+### 转录时报错连不上 huggingface.co（国内常见）
+
+首次运行第 2 步会下载 Whisper 模型，国内直连 `huggingface.co` 常被墙。
+本工具**默认已切换到国内镜像** `https://hf-mirror.com`，一般无需额外配置。
+
+若仍失败，可任选其一：
+
+```bash
+# 方案 A：确认镜像可访问（浏览器能打开 https://hf-mirror.com 即可）
+#         首次下载 base 模型约 140MB，请耐心等待
+
+# 方案 B：用更小的模型快速测试（tiny 约 40MB）
+python main.py 视频.mp4 --whisper-model tiny
+
+# 方案 C：有代理时改回官方源（PowerShell）
+$env:HF_ENDPOINT="https://huggingface.co"
+```
+
+---
+
 ## 已知限制
 
 - 不支持实时流（仅支持本地视频文件：mp4 / mkv / avi / mov）
