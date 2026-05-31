@@ -1,0 +1,19 @@
+# 临时音频（ffmpeg 提取的中间产物）
+*.wav
+
+# 生成的课程笔记
+*_notes_*.md
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+
+# 虚拟环境
+.venv/
+venv/
+
+# 环境变量（避免泄露 API key）
+.env
+
+# Claude Code 本地设置
+.claude/
