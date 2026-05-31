@@ -8,7 +8,9 @@ import click
 from frame_extractor import extract_key_frames
 from transcriber import transcribe_video
 from aligner import align_frames_with_transcript
-from analyzer import analyze_course, MODEL_PRICING, DEFAULT_MODEL
+from analyzer import (
+    analyze_course, MODEL_PRICING, DEFAULT_MODEL, DEFAULT_MINIMAX_MODEL,
+)
 from reporter import save_report
 
 
@@ -91,9 +93,14 @@ def estimate_cost(
 @click.option("--batch-size", default=8, type=int, help="每次发给 Claude 的帧数 [默认: 8]")
 @click.option("--whisper-model", default="base", help="Whisper 模型大小 [默认: base]")
 @click.option("--language", default="zh", help="音频语言，zh/en/None [默认: zh]")
-@click.option("--model", default=DEFAULT_MODEL,
-              type=click.Choice(list(MODEL_PRICING.keys())),
-              help=f"Claude 模型，越贵质量越好 [默认: {DEFAULT_MODEL}]")
+@click.option("--provider", default="anthropic",
+              type=click.Choice(["anthropic", "minimax"]),
+              help="大模型来源：anthropic=Claude，minimax=你的 MiniMax [默认: anthropic]")
+@click.option("--model", default="",
+              help="模型名。anthropic 可选 claude-opus/sonnet/haiku-4-5；"
+                   "minimax 填你的模型名（默认 MiniMax-VL-01，留空走默认）")
+@click.option("--base-url", default="",
+              help="MiniMax OpenAI 兼容接口地址（留空用默认或 MINIMAX_BASE_URL 环境变量）")
 @click.option("--image-max-side", default=1024, type=int,
               help="发给 Claude 的图片长边像素，越小越省 token [默认: 1024]")
 @click.option("--image-quality", default=85, type=click.IntRange(1, 100),
@@ -109,7 +116,9 @@ def main(
     batch_size,
     whisper_model,
     language,
+    provider,
     model,
+    base_url,
     image_max_side,
     image_quality,
     yes,
@@ -148,20 +157,28 @@ def main(
     aligned = align_frames_with_transcript(frames, segments)
     _done(t)
 
+    # 解析模型默认值（按 provider）
+    if not model:
+        model = DEFAULT_MODEL if provider == "anthropic" else DEFAULT_MINIMAX_MODEL
+
     # === 费用确认（第 4 步开始前，这是唯一花钱的一步）===
     est = estimate_cost(aligned, batch_size, model, image_max_side)
     print("\n" + "=" * 48)
-    print("⚠️  下一步将调用 Claude API，会消耗你的 token（扣费）")
+    print("⚠️  下一步将调用大模型 API，会消耗你的额度（扣费）")
     print("=" * 48)
-    print(f"  模型          : {model}")
+    print(f"  来源/模型     : {provider} / {model}")
     print(f"  图片设置      : 长边 {image_max_side}px / 质量 {image_quality}")
     print(f"  关键帧数      : {est['n_frames']} 帧")
-    print(f"  分批数        : {est['n_batches']} 批（每批 {batch_size} 帧）")
+    print(f"  调用次数      : {est['n_batches']} 次（每次 {batch_size} 帧）")
     print(f"  预计输入 token: ~{est['input_tokens']:,}")
-    print(f"  预计输出 token: ~{est['out_tokens_typical']:,}（每批上限 4096）")
-    print(f"  粗略费用      : ~${est['cost_typical']:.2f}"
-          f"（最坏约 ${est['cost_max']:.2f}）")
-    print(f"  注：费用按 {model} 标准定价估算，实际以 Anthropic 官方账单为准")
+    print(f"  预计输出 token: ~{est['out_tokens_typical']:,}（每次上限 4096）")
+    if provider == "anthropic":
+        print(f"  粗略费用      : ~${est['cost_typical']:.2f}"
+              f"（最坏约 ${est['cost_max']:.2f}）")
+        print(f"  注：费用按 {model} 标准定价估算，实际以 Anthropic 官方账单为准")
+    else:
+        print(f"  扣费方式      : 从你的 MiniMax 套餐扣 {est['n_batches']} 次模型调用")
+        print("  注：MiniMax 按套餐次数/token 计费，具体以 MiniMax 账户为准")
     print("=" * 48)
 
     if not yes:
@@ -169,8 +186,8 @@ def main(
             print("已取消。前 3 步均为本地处理，未产生任何费用。")
             return
 
-    # 步骤 4/4：Claude 分析
-    t = _step("[步骤 4/4] Claude 分析")
+    # 步骤 4/4：大模型分析
+    t = _step("[步骤 4/4] 大模型分析")
     raw_notes = analyze_course(
         aligned,
         subject_hint=subject,
@@ -178,6 +195,8 @@ def main(
         model=model,
         image_max_side=image_max_side,
         image_quality=image_quality,
+        provider=provider,
+        base_url=(base_url or os.environ.get("MINIMAX_BASE_URL") or None),
     )
     _done(t)
 
