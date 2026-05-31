@@ -6,8 +6,16 @@ import anthropic
 import cv2
 import numpy as np
 
-MODEL = "claude-opus-4-5"
+DEFAULT_MODEL = "claude-opus-4-5"
 MAX_TOKENS = 4096
+
+# 各模型标准定价（美元 / 百万 token），已核对 Anthropic 官方价目（2026-05）。
+# 不含缓存/批处理折扣。新增模型或官方调价后在此同步。
+MODEL_PRICING = {
+    "claude-opus-4-5": {"in": 5.0, "out": 25.0},
+    "claude-sonnet-4-5": {"in": 3.0, "out": 15.0},
+    "claude-haiku-4-5": {"in": 1.0, "out": 5.0},
+}
 
 
 def resize_keep_aspect(frame: np.ndarray, max_side: int) -> np.ndarray:
@@ -66,6 +74,7 @@ def analyze_course(
     aligned_data: list[dict],
     subject_hint: str = "",
     batch_size: int = 8,
+    model: str = DEFAULT_MODEL,
 ) -> str:
     """分批调用 Claude，返回完整 Markdown 笔记字符串。"""
     client = anthropic.Anthropic()
@@ -81,7 +90,7 @@ def analyze_course(
         content = _build_content(batch, subject_hint)
         try:
             response = client.messages.create(
-                model=MODEL,
+                model=model,
                 max_tokens=MAX_TOKENS,
                 messages=[{"role": "user", "content": content}],
             )

@@ -74,6 +74,28 @@ python main.py slides.mp4 --threshold 0.08 --whisper-model small
 
 ---
 
+## Claude 模型选择（影响质量与费用）
+
+通过 `--model` 切换,越贵质量越好。第 4 步开始前会按所选模型预估费用并等你确认:
+
+| 模型 | 输入 / 输出价（每百万 token） | 适用场景 |
+| --- | --- | --- |
+| `claude-opus-4-5`（默认） | $5 / $25 | 质量最佳,重要课程 |
+| `claude-sonnet-4-5` | $3 / $15 | 均衡,日常推荐 |
+| `claude-haiku-4-5` | $1 / $5 | 最省钱,快速预览 |
+
+```bash
+# 用更便宜的 Sonnet
+python main.py lecture01.mp4 --model claude-sonnet-4-5
+
+# 自动化脚本：跳过费用确认
+python main.py lecture01.mp4 --model claude-haiku-4-5 -y
+```
+
+> 价格已核对 Anthropic 官方价目（2026-05），不含缓存/批处理折扣，实际以官方账单为准。
+
+---
+
 ## 费用估算
 
 每个关键帧会以 JPEG（长边 ≤1024px）形式发送给 Claude，约消耗 1000~1600 token；

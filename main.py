@@ -8,7 +8,7 @@ import click
 from frame_extractor import extract_key_frames
 from transcriber import transcribe_video
 from aligner import align_frames_with_transcript
-from analyzer import analyze_course
+from analyzer import analyze_course, MODEL_PRICING, DEFAULT_MODEL
 from reporter import save_report
 
 
@@ -32,16 +32,14 @@ def _done(start: float):
     print(f"  完成，耗时 {time.time() - start:.1f}s")
 
 
-# claude-opus-4-5 标准定价（美元 / 百万 token）
-# 已核对 Anthropic 官方价目（2026-05）：输入 $5 / 输出 $25。
-# 注意：不含缓存折扣/批处理折扣；换其它模型或官方调价后需同步修改。
-_PRICE_IN_PER_MTOK = 5.0
-_PRICE_OUT_PER_MTOK = 25.0
 _TOKENS_PER_IMAGE = 1600  # 长边 1024px JPEG 的大致上限
 
 
-def estimate_cost(aligned: list[dict], batch_size: int) -> dict:
-    """粗略预估第 4 步 Claude 分析的 token 与费用。"""
+def estimate_cost(aligned: list[dict], batch_size: int, model: str) -> dict:
+    """粗略预估第 4 步 Claude 分析的 token 与费用（按所选模型定价）。"""
+    price = MODEL_PRICING.get(model, MODEL_PRICING[DEFAULT_MODEL])
+    price_in, price_out = price["in"], price["out"]
+
     n_frames = len(aligned)
     n_batches = max(1, (n_frames + batch_size - 1) // batch_size)
 
@@ -56,12 +54,12 @@ def estimate_cost(aligned: list[dict], batch_size: int) -> dict:
     out_tokens_max = n_batches * 4096
 
     cost_typical = (
-        input_tokens / 1e6 * _PRICE_IN_PER_MTOK
-        + out_tokens_typical / 1e6 * _PRICE_OUT_PER_MTOK
+        input_tokens / 1e6 * price_in
+        + out_tokens_typical / 1e6 * price_out
     )
     cost_max = (
-        input_tokens / 1e6 * _PRICE_IN_PER_MTOK
-        + out_tokens_max / 1e6 * _PRICE_OUT_PER_MTOK
+        input_tokens / 1e6 * price_in
+        + out_tokens_max / 1e6 * price_out
     )
     return {
         "n_frames": n_frames,
@@ -82,6 +80,9 @@ def estimate_cost(aligned: list[dict], batch_size: int) -> dict:
 @click.option("--batch-size", default=8, type=int, help="每次发给 Claude 的帧数 [默认: 8]")
 @click.option("--whisper-model", default="base", help="Whisper 模型大小 [默认: base]")
 @click.option("--language", default="zh", help="音频语言，zh/en/None [默认: zh]")
+@click.option("--model", default=DEFAULT_MODEL,
+              type=click.Choice(list(MODEL_PRICING.keys())),
+              help=f"Claude 模型，越贵质量越好 [默认: {DEFAULT_MODEL}]")
 @click.option("--yes", "-y", is_flag=True, default=False,
               help="跳过 Claude 分析前的费用确认（用于自动化脚本）")
 def main(
@@ -93,6 +94,7 @@ def main(
     batch_size,
     whisper_model,
     language,
+    model,
     yes,
 ):
     """视频网课分析工具：输入视频，输出结构化 Markdown 笔记。"""
@@ -130,17 +132,18 @@ def main(
     _done(t)
 
     # === 费用确认（第 4 步开始前，这是唯一花钱的一步）===
-    est = estimate_cost(aligned, batch_size)
+    est = estimate_cost(aligned, batch_size, model)
     print("\n" + "=" * 48)
     print("⚠️  下一步将调用 Claude API，会消耗你的 token（扣费）")
     print("=" * 48)
+    print(f"  模型          : {model}")
     print(f"  关键帧数      : {est['n_frames']} 帧")
     print(f"  分批数        : {est['n_batches']} 批（每批 {batch_size} 帧）")
     print(f"  预计输入 token: ~{est['input_tokens']:,}")
     print(f"  预计输出 token: ~{est['out_tokens_typical']:,}（每批上限 4096）")
     print(f"  粗略费用      : ~${est['cost_typical']:.2f}"
           f"（最坏约 ${est['cost_max']:.2f}）")
-    print("  注：费用为按 claude-opus-4-5 粗略定价估算，实际以 Anthropic 官方账单为准")
+    print(f"  注：费用按 {model} 标准定价估算，实际以 Anthropic 官方账单为准")
     print("=" * 48)
 
     if not yes:
@@ -154,6 +157,7 @@ def main(
         aligned,
         subject_hint=subject,
         batch_size=batch_size,
+        model=model,
     )
     _done(t)
 
