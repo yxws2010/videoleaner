@@ -21,13 +21,29 @@ MAX_TOKENS = 4096
 DEFAULT_MINIMAX_MODEL = "MiniMax-M2.5"
 DEFAULT_MINIMAX_BASE_URL = "https://api.minimaxi.com/v1"  # 国内站
 
-# Claude 各模型标准定价（美元 / 百万 token），已核对 Anthropic 官方价目（2026-05）。
-# 不含缓存/批处理折扣。新增模型或官方调价后在此同步。
+# 各模型标准定价（美元 / 百万 token）。已核对官方价目（2026-05）。
+# Claude: Anthropic；GPT: OpenAI。不含缓存/批处理折扣。
 MODEL_PRICING = {
     "claude-opus-4-5": {"in": 5.0, "out": 25.0},
     "claude-sonnet-4-5": {"in": 3.0, "out": 15.0},
     "claude-haiku-4-5": {"in": 1.0, "out": 5.0},
+    "gpt-4o": {"in": 2.5, "out": 10.0},
+    "gpt-4o-mini": {"in": 0.15, "out": 0.6},
 }
+
+# 各 provider 可选模型（均需支持图像理解/视觉）。
+PROVIDER_MODELS = {
+    "anthropic": ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"],
+    "openai": ["gpt-4o", "gpt-4o-mini"],
+    "minimax": ["MiniMax-M2.5"],
+}
+DEFAULT_MODELS = {
+    "anthropic": DEFAULT_MODEL,
+    "openai": "gpt-4o",
+    "minimax": DEFAULT_MINIMAX_MODEL,
+}
+# 按 token 美元计费的 provider（minimax 按套餐次数计费，单列）。
+USD_BILLED_PROVIDERS = {"anthropic", "openai"}
 
 
 def resize_keep_aspect(frame: np.ndarray, max_side: int) -> np.ndarray:
@@ -130,21 +146,26 @@ def analyze_course(
 
     if provider == "anthropic":
         client = anthropic.Anthropic()
-    elif provider == "minimax":
+    elif provider in ("minimax", "openai"):
         try:
             from openai import OpenAI
         except ImportError as e:
             raise RuntimeError(
-                "使用 MiniMax 需要安装 openai 库：pip install openai"
+                f"使用 {provider} 需要安装 openai 库：pip install openai"
             ) from e
-        key = api_key or os.environ.get("MINIMAX_API_KEY")
+        if provider == "minimax":
+            key = api_key or os.environ.get("MINIMAX_API_KEY")
+            base = base_url or DEFAULT_MINIMAX_BASE_URL
+            env_name = "MINIMAX_API_KEY"
+        else:  # openai / ChatGPT
+            key = api_key or os.environ.get("OPENAI_API_KEY")
+            base = base_url or None  # None = 用 OpenAI 官方默认地址
+            env_name = "OPENAI_API_KEY"
         if not key:
             raise RuntimeError(
-                "未找到 MiniMax 密钥，请设置环境变量 MINIMAX_API_KEY"
+                f"未找到 {provider} 密钥，请设置环境变量 {env_name}"
             )
-        client = OpenAI(
-            base_url=base_url or DEFAULT_MINIMAX_BASE_URL, api_key=key
-        )
+        client = OpenAI(base_url=base, api_key=key)
     else:
         raise ValueError(f"未知 provider：{provider}")
 

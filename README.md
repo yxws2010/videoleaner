@@ -54,6 +54,33 @@ $env:ANTHROPIC_API_KEY="sk-ant-..."
 
 ## 快速开始
 
+### 🧭 交互式向导（推荐新手）
+
+加 `-i` 后会一步步问你：提多少帧、处理多少秒、选哪家大模型（Claude /
+ChatGPT / MiniMax）、选哪个具体型号——不用记一堆命令行参数：
+
+```bash
+python main.py lecture01.mp4 -i
+```
+
+向导示例：
+
+```
+=== 配置向导 ===（直接回车用默认值）
+1) 最多提取多少个关键帧？（0=不限） [0]: 5
+2) 只处理视频前多少秒？（0=整段） [0.0]: 60
+3) 选择大模型来源：
+   [1] Claude (Anthropic)
+   [2] ChatGPT (OpenAI)
+   [3] MiniMax
+   请选择 [1]: 3
+4) 选择 MiniMax 的模型：
+   [1] MiniMax-M2.5
+   请选择 [1]: 1
+```
+
+### 命令行用法
+
 ```bash
 # 1. 最简用法（中文课程，默认参数）
 python main.py lecture01.mp4
@@ -63,6 +90,30 @@ python main.py lecture01.mp4 --subject "机器学习基础" --output-dir ./notes
 
 # 3. PPT 课程 + 更高质量的转录模型
 python main.py slides.mp4 --threshold 0.08 --whisper-model small
+```
+
+---
+
+## 三家大模型怎么选
+
+用 `--provider` 选来源，`--model` 选具体型号（向导 `-i` 会引导你选）。
+**三家都需用支持图像理解的模型**：
+
+| `--provider` | 密钥环境变量 | 可选模型 | 计费 |
+| --- | --- | --- | --- |
+| `anthropic`（默认） | `ANTHROPIC_API_KEY` | claude-opus / sonnet / haiku-4-5 | 美元 / token |
+| `openai` | `OPENAI_API_KEY` | gpt-4o、gpt-4o-mini | 美元 / token |
+| `minimax` | `MINIMAX_API_KEY` | MiniMax-M2.5 | 套餐次数 |
+
+```bash
+# Claude（默认）
+python main.py 视频.mp4 --provider anthropic --model claude-sonnet-4-5
+
+# ChatGPT
+python main.py 视频.mp4 --provider openai --model gpt-4o
+
+# MiniMax
+python main.py 视频.mp4 --provider minimax --model MiniMax-M2.5
 ```
 
 ---

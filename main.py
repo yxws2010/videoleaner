@@ -10,7 +10,15 @@ from transcriber import transcribe_video
 from aligner import align_frames_with_transcript
 from analyzer import (
     analyze_course, MODEL_PRICING, DEFAULT_MODEL, DEFAULT_MINIMAX_MODEL,
+    PROVIDER_MODELS, DEFAULT_MODELS, USD_BILLED_PROVIDERS,
 )
+
+# provider 友好名称（向导显示用）
+PROVIDER_LABELS = {
+    "anthropic": "Claude (Anthropic)",
+    "openai": "ChatGPT (OpenAI)",
+    "minimax": "MiniMax",
+}
 from reporter import save_report
 
 
@@ -32,6 +40,54 @@ def _step(label: str):
 
 def _done(start: float):
     print(f"  完成，耗时 {time.time() - start:.1f}s")
+
+
+def _resolve_base_url(provider: str, base_url: str) -> str | None:
+    """决定传给客户端的 base_url：显式 --base-url 优先，其次按 provider 取默认。"""
+    if base_url:
+        return base_url
+    if provider == "minimax":
+        return os.environ.get("MINIMAX_BASE_URL") or None
+    return None  # openai 用官方默认；anthropic 不使用
+
+
+def run_wizard(provider, model, max_frames, limit_sec):
+    """交互式向导：逐步询问帧数 / 秒数 / 大模型来源与型号，返回更新后的值。"""
+    print("\n=== 配置向导 ===（直接回车用默认值）")
+
+    # 1. 关键帧上限
+    max_frames = click.prompt(
+        "1) 最多提取多少个关键帧？（0=不限）", default=max_frames, type=int
+    )
+    # 2. 处理时长
+    limit_sec = click.prompt(
+        "2) 只处理视频前多少秒？（0=整段）", default=limit_sec, type=float
+    )
+
+    # 3. 选择大模型来源
+    providers = list(PROVIDER_LABELS.keys())
+    print("3) 选择大模型来源：")
+    for idx, p in enumerate(providers, 1):
+        print(f"   [{idx}] {PROVIDER_LABELS[p]}")
+    default_pidx = providers.index(provider) + 1
+    pidx = click.prompt(
+        "   请选择", default=default_pidx,
+        type=click.IntRange(1, len(providers)),
+    )
+    provider = providers[pidx - 1]
+
+    # 4. 选择该来源下的具体模型
+    models = PROVIDER_MODELS[provider]
+    print(f"4) 选择 {PROVIDER_LABELS[provider]} 的模型：")
+    for idx, m in enumerate(models, 1):
+        print(f"   [{idx}] {m}")
+    midx = click.prompt(
+        "   请选择", default=1, type=click.IntRange(1, len(models)),
+    )
+    model = models[midx - 1]
+
+    print("=" * 32)
+    return provider, model, max_frames, limit_sec
 
 
 def _tokens_per_image(image_max_side: int) -> int:
@@ -97,8 +153,8 @@ def estimate_cost(
               help="转录后端：auto(先faster失败回退openai)/faster/openai [默认: auto]")
 @click.option("--language", default="zh", help="音频语言，zh/en/None [默认: zh]")
 @click.option("--provider", default="anthropic",
-              type=click.Choice(["anthropic", "minimax"]),
-              help="大模型来源：anthropic=Claude，minimax=你的 MiniMax [默认: anthropic]")
+              type=click.Choice(["anthropic", "openai", "minimax"]),
+              help="大模型来源：anthropic=Claude，openai=ChatGPT，minimax=MiniMax")
 @click.option("--model", default="",
               help="模型名。anthropic 可选 claude-opus/sonnet/haiku-4-5；"
                    "minimax 需用多模态模型（默认 MiniMax-M2.5，M2.7 不支持图片）")
@@ -116,6 +172,8 @@ def estimate_cost(
               help="只处理视频前 N 秒，大文件快速测试用 [默认: 0=整段]")
 @click.option("--max-frames", default=0, type=int,
               help="最多提取 N 个关键帧后停止，快速测试用 [默认: 0=不限]")
+@click.option("--interactive", "-i", is_flag=True, default=False,
+              help="交互式向导：逐步选择帧数/秒数/大模型来源与型号")
 def main(
     video_path,
     output_dir,
@@ -135,12 +193,23 @@ def main(
     dry_run,
     limit_sec,
     max_frames,
+    interactive,
 ):
     """视频网课分析工具：输入视频，输出结构化 Markdown 笔记。"""
     print("=== 视频网课分析工具 ===")
 
     if not os.path.exists(video_path):
         raise click.ClickException(f"视频文件不存在：{video_path}")
+
+    # 交互式向导（覆盖帧数/秒数/来源/模型）
+    if interactive:
+        provider, model, max_frames, limit_sec = run_wizard(
+            provider, model, max_frames, limit_sec
+        )
+
+    # 解析模型默认值（按 provider）
+    if not model:
+        model = DEFAULT_MODELS[provider]
 
     duration = get_video_duration(video_path)
     print(f"视频文件：{video_path}")
@@ -174,25 +243,21 @@ def main(
     aligned = align_frames_with_transcript(frames, segments)
     _done(t)
 
-    # 解析模型默认值（按 provider）
-    if not model:
-        model = DEFAULT_MODEL if provider == "anthropic" else DEFAULT_MINIMAX_MODEL
-
     # === 费用确认（第 4 步开始前，这是唯一花钱的一步）===
     est = estimate_cost(aligned, batch_size, model, image_max_side)
     print("\n" + "=" * 48)
     print("⚠️  下一步将调用大模型 API，会消耗你的额度（扣费）")
     print("=" * 48)
-    print(f"  来源/模型     : {provider} / {model}")
+    print(f"  来源/模型     : {PROVIDER_LABELS.get(provider, provider)} / {model}")
     print(f"  图片设置      : 长边 {image_max_side}px / 质量 {image_quality}")
     print(f"  关键帧数      : {est['n_frames']} 帧")
     print(f"  调用次数      : {est['n_batches']} 次（每次 {batch_size} 帧）")
     print(f"  预计输入 token: ~{est['input_tokens']:,}")
     print(f"  预计输出 token: ~{est['out_tokens_typical']:,}（每次上限 4096）")
-    if provider == "anthropic":
+    if provider in USD_BILLED_PROVIDERS:
         print(f"  粗略费用      : ~${est['cost_typical']:.2f}"
               f"（最坏约 ${est['cost_max']:.2f}）")
-        print(f"  注：费用按 {model} 标准定价估算，实际以 Anthropic 官方账单为准")
+        print(f"  注：费用按 {model} 标准定价估算，实际以官方账单为准")
     else:
         print(f"  扣费方式      : 从你的 MiniMax 套餐扣 {est['n_batches']} 次模型调用")
         print("  注：MiniMax 按套餐次数/token 计费，具体以 MiniMax 账户为准")
@@ -219,7 +284,7 @@ def main(
         image_max_side=image_max_side,
         image_quality=image_quality,
         provider=provider,
-        base_url=(base_url or os.environ.get("MINIMAX_BASE_URL") or None),
+        base_url=_resolve_base_url(provider, base_url),
     )
     _done(t)
 
