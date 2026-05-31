@@ -32,6 +32,45 @@ def _done(start: float):
     print(f"  完成，耗时 {time.time() - start:.1f}s")
 
 
+# claude-opus-4-5 粗略定价（美元 / 百万 token），仅用于费用预估，实际以官方为准
+_PRICE_IN_PER_MTOK = 5.0
+_PRICE_OUT_PER_MTOK = 25.0
+_TOKENS_PER_IMAGE = 1600  # 长边 1024px JPEG 的大致上限
+
+
+def estimate_cost(aligned: list[dict], batch_size: int) -> dict:
+    """粗略预估第 4 步 Claude 分析的 token 与费用。"""
+    n_frames = len(aligned)
+    n_batches = max(1, (n_frames + batch_size - 1) // batch_size)
+
+    image_tokens = n_frames * _TOKENS_PER_IMAGE
+    # 中文按 ~1 token/字 粗估转录文字
+    text_tokens = sum(len(item.get("transcript", "")) for item in aligned)
+    prompt_overhead = n_batches * 150
+    input_tokens = image_tokens + text_tokens + prompt_overhead
+
+    # 输出：每批最多 4096，按典型 ~40% 估算
+    out_tokens_typical = int(n_batches * 4096 * 0.4)
+    out_tokens_max = n_batches * 4096
+
+    cost_typical = (
+        input_tokens / 1e6 * _PRICE_IN_PER_MTOK
+        + out_tokens_typical / 1e6 * _PRICE_OUT_PER_MTOK
+    )
+    cost_max = (
+        input_tokens / 1e6 * _PRICE_IN_PER_MTOK
+        + out_tokens_max / 1e6 * _PRICE_OUT_PER_MTOK
+    )
+    return {
+        "n_frames": n_frames,
+        "n_batches": n_batches,
+        "input_tokens": input_tokens,
+        "out_tokens_typical": out_tokens_typical,
+        "cost_typical": cost_typical,
+        "cost_max": cost_max,
+    }
+
+
 @click.command()
 @click.argument("video_path", type=click.Path())
 @click.option("--output-dir", default=".", help="笔记输出目录 [默认: 当前目录]")
@@ -41,6 +80,8 @@ def _done(start: float):
 @click.option("--batch-size", default=8, type=int, help="每次发给 Claude 的帧数 [默认: 8]")
 @click.option("--whisper-model", default="base", help="Whisper 模型大小 [默认: base]")
 @click.option("--language", default="zh", help="音频语言，zh/en/None [默认: zh]")
+@click.option("--yes", "-y", is_flag=True, default=False,
+              help="跳过 Claude 分析前的费用确认（用于自动化脚本）")
 def main(
     video_path,
     output_dir,
@@ -50,6 +91,7 @@ def main(
     batch_size,
     whisper_model,
     language,
+    yes,
 ):
     """视频网课分析工具：输入视频，输出结构化 Markdown 笔记。"""
     print("=== 视频网课分析工具 ===")
@@ -84,6 +126,25 @@ def main(
     t = _step("[步骤 3/4] 对齐时间轴")
     aligned = align_frames_with_transcript(frames, segments)
     _done(t)
+
+    # === 费用确认（第 4 步开始前，这是唯一花钱的一步）===
+    est = estimate_cost(aligned, batch_size)
+    print("\n" + "=" * 48)
+    print("⚠️  下一步将调用 Claude API，会消耗你的 token（扣费）")
+    print("=" * 48)
+    print(f"  关键帧数      : {est['n_frames']} 帧")
+    print(f"  分批数        : {est['n_batches']} 批（每批 {batch_size} 帧）")
+    print(f"  预计输入 token: ~{est['input_tokens']:,}")
+    print(f"  预计输出 token: ~{est['out_tokens_typical']:,}（每批上限 4096）")
+    print(f"  粗略费用      : ~${est['cost_typical']:.2f}"
+          f"（最坏约 ${est['cost_max']:.2f}）")
+    print("  注：费用为按 claude-opus-4-5 粗略定价估算，实际以 Anthropic 官方账单为准")
+    print("=" * 48)
+
+    if not yes:
+        if not click.confirm("确认继续分析并扣费？", default=False):
+            print("已取消。前 3 步均为本地处理，未产生任何费用。")
+            return
 
     # 步骤 4/4：Claude 分析
     t = _step("[步骤 4/4] Claude 分析")
