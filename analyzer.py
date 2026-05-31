@@ -16,8 +16,10 @@ DEFAULT_MODEL = "claude-opus-4-5"
 MAX_TOKENS = 4096
 
 # MiniMax（OpenAI 兼容接口）默认配置，可被 CLI / 环境变量覆盖
-DEFAULT_MINIMAX_MODEL = "MiniMax-VL-01"
-DEFAULT_MINIMAX_BASE_URL = "https://api.minimaxi.com/v1"
+# 注意：必须用支持图像理解的多模态模型。MiniMax-M2.5 原生多模态可用；
+# M2.7 / M2.7-highspeed 等为纯文本模型，无法处理截图。
+DEFAULT_MINIMAX_MODEL = "MiniMax-M2.5"
+DEFAULT_MINIMAX_BASE_URL = "https://api.minimaxi.com/v1"  # 国内站
 
 # Claude 各模型标准定价（美元 / 百万 token），已核对 Anthropic 官方价目（2026-05）。
 # 不含缓存/批处理折扣。新增模型或官方调价后在此同步。

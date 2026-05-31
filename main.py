@@ -98,7 +98,7 @@ def estimate_cost(
               help="大模型来源：anthropic=Claude，minimax=你的 MiniMax [默认: anthropic]")
 @click.option("--model", default="",
               help="模型名。anthropic 可选 claude-opus/sonnet/haiku-4-5；"
-                   "minimax 填你的模型名（默认 MiniMax-VL-01，留空走默认）")
+                   "minimax 需用多模态模型（默认 MiniMax-M2.5，M2.7 不支持图片）")
 @click.option("--base-url", default="",
               help="MiniMax OpenAI 兼容接口地址（留空用默认或 MINIMAX_BASE_URL 环境变量）")
 @click.option("--image-max-side", default=1024, type=int,

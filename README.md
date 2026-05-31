@@ -117,39 +117,45 @@ python main.py lecture01.mp4 --model claude-haiku-4-5 -y
 ## 用自己的 MiniMax 模型（OpenAI 兼容接口）
 
 如果你有 MiniMax 套餐，可以用 `--provider minimax` 替代 Claude。
-**要求模型支持图像理解（视觉）**，因为本工具会把课程截图发给模型。
+本工具会把课程截图发给模型，**必须选支持图像理解的多模态模型**：
+
+| MiniMax 模型 | 能否用 | 说明 |
+| --- | --- | --- |
+| `MiniMax-M2.5`（默认） | ✅ | 原生多模态，支持图像理解 |
+| `MiniMax-M2.7` / `-highspeed` | ❌ | 纯文本模型，无法处理截图 |
+| `MiniMax-M2` / `M2.1` 系列 | ❌ | 纯文本 |
 
 ### 配置环境变量
 
 ```bash
-# macOS / Linux
-export MINIMAX_API_KEY="你的-minimax-key"
-# 可选：自定义接口地址（默认 https://api.minimaxi.com/v1）
-export MINIMAX_BASE_URL="https://api.minimaxi.com/v1"
-
 # Windows (PowerShell)
 $env:MINIMAX_API_KEY="你的-minimax-key"
+
+# macOS / Linux
+export MINIMAX_API_KEY="你的-minimax-key"
+# 可选：覆盖接口地址（默认国内站 https://api.minimaxi.com/v1）
+export MINIMAX_BASE_URL="https://api.minimaxi.com/v1"
 ```
+
+> 🔒 **安全**：API Key 只放环境变量，**切勿**写进代码或提交到 Git。一旦泄露请
+> 立刻到 MiniMax 控制台重置。
 
 需要先装 openai 库（已在 requirements.txt）：`pip install openai`
 
 ### 用法
 
 ```bash
-# 用 MiniMax 默认视觉模型
+# 用 MiniMax-M2.5（默认，国内站地址也是默认）
 python main.py lecture01.mp4 --provider minimax
 
-# 指定具体模型名 / 自定义接口地址
+# 显式指定模型 / 接口地址
 python main.py lecture01.mp4 --provider minimax \
-  --model MiniMax-VL-01 --base-url https://api.minimaxi.com/v1
+  --model MiniMax-M2.5 --base-url https://api.minimaxi.com/v1
 ```
 
 > MiniMax 按**套餐次数/token**计费，不是美元。第 4 步确认框会显示
 > **「本次约 N 次模型调用」**（N = 关键帧数 ÷ batch-size），方便你对照套餐余额。
 > 调大 `--batch-size` 可减少调用次数（但每次内容更长）。
->
-> ⚠️ 若你的 MiniMax 模型**不支持视觉**，发图会报错或被忽略——请确认用的是
-> 图文多模态模型，或把模型名换成支持图像理解的型号。
 
 ---
 
