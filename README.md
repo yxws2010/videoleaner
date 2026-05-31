@@ -157,6 +157,17 @@ python main.py lecture01.mp4 --provider minimax \
 > **「本次约 N 次模型调用」**（N = 关键帧数 ÷ batch-size），方便你对照套餐余额。
 > 调大 `--batch-size` 可减少调用次数（但每次内容更长）。
 
+### 先用 `--dry-run` 零成本验证
+
+加 `--dry-run` 会跑完前 3 步（提取关键帧 / 转录 / 对齐）并显示预估，但
+**不调用大模型、不扣任何额度**。用来确认 ffmpeg、Whisper、关键帧都正常：
+
+```bash
+python main.py 测试视频.mp4 --provider minimax --dry-run
+```
+
+确认无误后，去掉 `--dry-run` 即可真正分析。
+
 ---
 
 ## 进一步省 token：压小图片

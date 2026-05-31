@@ -107,6 +107,8 @@ def estimate_cost(
               help="JPEG 压缩质量 1~100，越低越省 token [默认: 85]")
 @click.option("--yes", "-y", is_flag=True, default=False,
               help="跳过 Claude 分析前的费用确认（用于自动化脚本）")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="只跑前 3 步并显示预估，不调用大模型、不扣额度（验证流程用）")
 def main(
     video_path,
     output_dir,
@@ -122,6 +124,7 @@ def main(
     image_max_side,
     image_quality,
     yes,
+    dry_run,
 ):
     """视频网课分析工具：输入视频，输出结构化 Markdown 笔记。"""
     print("=== 视频网课分析工具 ===")
@@ -180,6 +183,12 @@ def main(
         print(f"  扣费方式      : 从你的 MiniMax 套餐扣 {est['n_batches']} 次模型调用")
         print("  注：MiniMax 按套餐次数/token 计费，具体以 MiniMax 账户为准")
     print("=" * 48)
+
+    if dry_run:
+        print("🧪 dry-run：仅验证流程，未调用大模型、未扣任何额度。")
+        print(f"   （已就绪 {est['n_frames']} 帧 / {est['n_batches']} 次调用，"
+              "去掉 --dry-run 即可真正分析）")
+        return
 
     if not yes:
         if not click.confirm("确认继续分析并扣费？", default=False):
