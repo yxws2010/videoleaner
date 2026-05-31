@@ -37,7 +37,12 @@ def save_batch_images(
         mmss = f"{minutes:02d}{seconds:02d}"
         fname = f"frame_{idx:03d}_{mmss}.jpg"
         thumb = resize_keep_aspect(item["frame"], max_side=800)
-        cv2.imwrite(os.path.join(images_dir, fname), thumb)
+        # 注意：cv2.imwrite 在 Windows 上不支持中文/Unicode 路径（静默失败），
+        # 改用 imencode + open() 写字节，Python 完整支持 Unicode 路径。
+        ok, buf = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        if ok:
+            with open(os.path.join(images_dir, fname), "wb") as f:
+                f.write(buf.tobytes())
         rel = f"{images_rel}/{fname}" if images_rel else fname
         lines.append(f"**[{minutes:02d}:{seconds:02d}]**\n\n![{minutes:02d}:{seconds:02d}]({rel})")
         idx += 1
