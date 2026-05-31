@@ -230,15 +230,24 @@ python main.py lecture01.mp4 --image-max-side 1280
 若仍失败，可任选其一：
 
 ```bash
-# 方案 A：确认镜像可访问（浏览器能打开 https://hf-mirror.com 即可）
-#         首次下载 base 模型约 140MB，请耐心等待
+# 方案 A（推荐，完全离线）：用原版 openai-whisper 的本地 .pt 模型
+#   前提：pip install openai-whisper，且模型在 ~/.cache/whisper/<size>.pt
+python main.py 视频.mp4 --whisper-backend openai
 
-# 方案 B：用更小的模型快速测试（tiny 约 40MB）
+# 方案 B：确认镜像可访问（浏览器能打开 https://hf-mirror.com 即可）
+#   首次下载 base 模型约 140MB，请耐心等待
+
+# 方案 C：用更小的模型快速测试（tiny 约 40MB）
 python main.py 视频.mp4 --whisper-model tiny
 
-# 方案 C：有代理时改回官方源（PowerShell）
+# 方案 D：有代理时改回官方源（PowerShell）
 $env:HF_ENDPOINT="https://huggingface.co"
 ```
+
+> **转录后端**（`--whisper-backend`）：
+> - `auto`（默认）：先试 faster-whisper，失败自动回退 openai-whisper
+> - `faster`：仅用 faster-whisper（CTranslate2 模型，首次需联网）
+> - `openai`：仅用 openai-whisper（原版 `.pt`，可完全离线）
 
 ---
 

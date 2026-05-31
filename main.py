@@ -92,6 +92,9 @@ def estimate_cost(
 @click.option("--interval", default=30, type=int, help="强制兜底间隔（秒）[默认: 30]")
 @click.option("--batch-size", default=8, type=int, help="每次发给 Claude 的帧数 [默认: 8]")
 @click.option("--whisper-model", default="base", help="Whisper 模型大小 [默认: base]")
+@click.option("--whisper-backend", default="auto",
+              type=click.Choice(["auto", "faster", "openai"]),
+              help="转录后端：auto(先faster失败回退openai)/faster/openai [默认: auto]")
 @click.option("--language", default="zh", help="音频语言，zh/en/None [默认: zh]")
 @click.option("--provider", default="anthropic",
               type=click.Choice(["anthropic", "minimax"]),
@@ -121,6 +124,7 @@ def main(
     interval,
     batch_size,
     whisper_model,
+    whisper_backend,
     language,
     provider,
     model,
@@ -161,6 +165,7 @@ def main(
         model_size=whisper_model,
         language=language,
         limit_sec=limit_sec,
+        backend=whisper_backend,
     )
     _done(t)
 

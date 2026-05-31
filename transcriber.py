@@ -1,15 +1,78 @@
-"""音频提取 + Whisper 转录。"""
+"""音频提取 + Whisper 转录。
+
+支持两种后端：
+- faster-whisper：CTranslate2 格式，首次需从 HuggingFace 下载模型（国内可能被墙）
+- openai-whisper：原版 .pt 模型，默认从 ~/.cache/whisper 离线加载
+
+backend="auto"（默认）：先试 faster-whisper，失败则回退到 openai-whisper。
+"""
 
 import os
 import tempfile
 
-# 国内直连 huggingface.co 常被墙，默认走镜像 hf-mirror.com。
+# 国内直连 huggingface.co 常被墙，faster-whisper 默认走镜像 hf-mirror.com。
 # 必须在导入 faster_whisper / huggingface_hub 之前设置才生效。
-# 已自行设置 HF_ENDPOINT（如挂了代理）则尊重你的设置。
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 import ffmpeg
-from faster_whisper import WhisperModel
+
+
+def _transcribe_faster(audio_path: str, model_size: str, lang) -> list[dict]:
+    """faster-whisper 后端（CTranslate2 模型，可能需联网下载）。"""
+    from faster_whisper import WhisperModel
+
+    model = WhisperModel(model_size)
+    seg_iter, _info = model.transcribe(
+        audio_path, language=lang, word_timestamps=False
+    )
+    return [
+        {"start": float(s.start), "end": float(s.end), "text": s.text.strip()}
+        for s in seg_iter
+    ]
+
+
+def _transcribe_openai(audio_path: str, model_size: str, lang) -> list[dict]:
+    """openai-whisper 后端（原版 .pt 模型，从 ~/.cache/whisper 离线加载）。"""
+    import whisper
+
+    model = whisper.load_model(model_size)
+    result = model.transcribe(audio_path, language=lang, verbose=False)
+    return [
+        {
+            "start": float(s["start"]),
+            "end": float(s["end"]),
+            "text": s["text"].strip(),
+        }
+        for s in result.get("segments", [])
+    ]
+
+
+def _run_backend(
+    audio_path: str, model_size: str, lang, backend: str
+) -> list[dict]:
+    if backend == "faster":
+        return _transcribe_faster(audio_path, model_size, lang)
+    if backend == "openai":
+        return _transcribe_openai(audio_path, model_size, lang)
+
+    # auto：先 faster，失败回退 openai
+    try:
+        return _transcribe_faster(audio_path, model_size, lang)
+    except Exception as e_fast:
+        print("  faster-whisper 不可用，改用 openai-whisper 本地模型……")
+        try:
+            return _transcribe_openai(audio_path, model_size, lang)
+        except Exception as e_openai:
+            raise RuntimeError(
+                "两种 Whisper 后端均失败：\n"
+                f"  - faster-whisper：{e_fast}\n"
+                f"  - openai-whisper：{e_openai}\n"
+                "  建议：\n"
+                "  1) 用本地已有的原版模型：--whisper-backend openai\n"
+                "     （需 pip install openai-whisper，模型放在 ~/.cache/whisper）\n"
+                "  2) 或换更小的模型：--whisper-model tiny\n"
+                "  3) 或挂代理让 faster-whisper 能访问模型仓库"
+            ) from e_openai
 
 
 def transcribe_video(
@@ -17,11 +80,13 @@ def transcribe_video(
     model_size: str = "base",
     language: str = "zh",
     limit_sec: float = 0.0,
+    backend: str = "auto",
 ) -> list[dict]:
     """提取音频并转录。
 
     返回 [{"start": float, "end": float, "text": str}, ...]
     limit_sec > 0：只转录前这么多秒（配合大文件快速测试）。
+    backend：auto / faster / openai。
     """
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"视频文件不存在：{video_path}")
@@ -40,31 +105,9 @@ def transcribe_video(
             .run()
         )
 
-        # 2. 转录
-        # language=None 表示自动检测
+        # 2. 转录（language=None 表示自动检测）
         lang = None if (language in (None, "", "None", "none")) else language
-        try:
-            model = WhisperModel(model_size)
-        except Exception as e:
-            raise RuntimeError(
-                "下载 Whisper 模型失败（通常是网络无法访问模型仓库）。\n"
-                f"  当前镜像：HF_ENDPOINT={os.environ.get('HF_ENDPOINT')}\n"
-                "  可尝试：\n"
-                "  1) 确认能访问 https://hf-mirror.com（国内镜像）\n"
-                "  2) 或挂代理后设置 HF_ENDPOINT=https://huggingface.co\n"
-                "  3) 或换更小的模型重试：--whisper-model tiny\n"
-                f"  原始错误：{e}"
-            ) from e
-        seg_iter, _info = model.transcribe(
-            tmp,
-            language=lang,
-            word_timestamps=False,
-        )
-
-        segments = [
-            {"start": float(s.start), "end": float(s.end), "text": s.text.strip()}
-            for s in seg_iter
-        ]
+        segments = _run_backend(tmp, model_size, lang, backend)
     finally:
         # 3. 清理临时文件
         if os.path.exists(tmp):
